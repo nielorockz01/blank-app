@@ -1,36 +1,13 @@
 import streamlit as st
 import pandas as pd
 
-# Set page configuration - Widescreen layout suited for 16:9 aspect ratio monitors
+# Set page configuration
 st.set_page_config(
-    page_title="Sales Performance and Customer Insights",
+    page_title="Sales Performance and Customer Insight",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Custom CSS to optimize aspect ratio and container spacing for 16:9 display resolution
-st.markdown(
-<style>
-    /* Maximize container width to fit 16:9 displays efficiently */
-    .stAppViewContainer .main .block-container {
-        max-width: 95%;
-        padding-top: 2rem;
-        padding-bottom: 2rem;
-        padding-left: 3rem;
-        padding-right: 3rem;
-    }
-    
-    /* Executive Metric Card styling */
-    div[data-testid="stMetric"] {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
-        padding: 12px 18px;
-        border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    }
-</style>
-\"\"\", unsafe_allow_html=True)
 
 @st.cache_data
 def load_data():
@@ -44,7 +21,7 @@ def load_data():
 df = load_data()
 
 # Sidebar Filters
-st.sidebar.title("🔍 Dashboard Filters")
+st.sidebar.title("🔍 Filters")
 
 min_date = df['order_datetime'].min().date()
 max_date = df['order_datetime'].max().date()
@@ -67,8 +44,8 @@ if selected_status != 'All':
     filtered_df = filtered_df[filtered_df['order_status'] == selected_status]
 
 # Header
-st.title("🇵🇭 Sales Performance and Customer Insights")
-st.caption("Native Streamlit Dashboard | Optimized for 16:9 Display Resolution | All monetary values in Philippine Peso (₱)")
+st.title("🇵🇭 Fact Sales Executive Dashboard")
+st.caption("Native Streamlit Implementation | All values in Philippine Peso (₱)")
 st.divider()
 
 # Core KPI Computations
@@ -111,12 +88,13 @@ kpi7.metric("New Customer Revenue", f"₱{new_rev:,.2f}", f"{(new_rev/total_reve
 
 st.divider()
 
-# Row 3: Visualizations (Optimized layout grid for 16:9 viewports)
+# 1. Monthly Revenue Line Chart (Native Streamlit st.line_chart)
 st.subheader("📈 Monthly Revenue Trend")
 monthly_rev = filtered_df.groupby('year_month')['revenue'].sum().reset_index()
 monthly_chart_data = monthly_rev.set_index('year_month')['revenue']
 st.line_chart(monthly_chart_data, y_label="Revenue (₱)", x_label="Month")
 
+# Row 3: Product and Category Charts (Native Streamlit st.bar_chart)
 col1, col2 = st.columns(2)
 
 with col1:
@@ -131,6 +109,7 @@ with col2:
     cat_chart = cat_rev.set_index('category')['revenue']
     st.bar_chart(cat_chart, x_label="Category", y_label="Revenue (₱)")
 
+# Row 4: City Chart & Customer Spend Distribution
 col3, col4 = st.columns(2)
 
 with col3:
@@ -141,6 +120,7 @@ with col3:
 
 with col4:
     st.subheader("👥 Customer Spend Distribution Histogram")
+    # Native Streamlit histogram representation using pd.cut binning displayed via st.bar_chart
     spend_bins = pd.cut(customer_revenue['total_spend'], bins=15)
     spend_dist = spend_bins.value_counts().sort_index().reset_index()
     spend_dist.columns = ['Spend Range (₱)', 'Customer Count']
