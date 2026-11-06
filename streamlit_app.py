@@ -10,7 +10,7 @@ st.set_page_config(
 )
 
 # Custom CSS to optimize aspect ratio and container spacing for 16:9 display resolution
-st.markdown(\"\"\"
+st.markdown(
 <style>
     /* Maximize container width to fit 16:9 displays efficiently */
     .stAppViewContainer .main .block-container {
