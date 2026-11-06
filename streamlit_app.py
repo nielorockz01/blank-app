@@ -1,129 +1,186 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 
-# Set page configuration
 st.set_page_config(
-    page_title="Sales Performance and Customer Insight",
+    page_title="Sales Performance & Customer Insight",
     page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 @st.cache_data
 def load_data():
-    df = pd.read_csv('fact_sales.csv')
-    # Calculate revenue incorporating discounts
-    df['revenue'] = df['quantity'] * df['unit_price_at_purchase'] * (1 - df['discount_pct'])
+    df = pd.read_csv("fact_sales.csv")
     df['order_datetime'] = pd.to_datetime(df['order_datetime'])
     df['year_month'] = df['order_datetime'].dt.to_period('M').astype(str)
     return df
 
 df = load_data()
 
+st.title("📊 Sales Performance and Customer Insight Dashboard")
+st.markdown("Comprehensive analytics dashboard tracking Philippine Peso (₱) revenue, orders, product performance, and customer behavior.")
+
 # Sidebar Filters
-st.sidebar.title("🔍 Filters")
+st.sidebar.header("Filter Controls")
 
 min_date = df['order_datetime'].min().date()
 max_date = df['order_datetime'].max().date()
 
-date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
+date_range = st.sidebar.date_input(
+    "Date Range",
+    value=(min_date, max_date),
+    min_value=min_date,
+    max_value=max_date
+)
+
+regions = ["All"] + sorted(df['region_name'].unique().tolist())
+selected_region = st.sidebar.selectbox("Region", regions)
+
+categories = ["All"] + sorted(df['category'].unique().tolist())
+selected_category = st.sidebar.selectbox("Category", categories)
+
+# Apply Filters
+filtered_df = df.copy()
 if len(date_range) == 2:
     start_date, end_date = date_range
-    filtered_df = df[(df['order_datetime'].dt.date >= start_date) & (df['order_datetime'].dt.date <= end_date)]
-else:
-    filtered_df = df.copy()
+    filtered_df = filtered_df[
+        (filtered_df['order_datetime'].dt.date >= start_date) & 
+        (filtered_df['order_datetime'].dt.date <= end_date)
+    ]
 
-categories = ['All'] + sorted(list(filtered_df['category'].dropna().unique()))
-selected_category = st.sidebar.selectbox("Category", categories)
-if selected_category != 'All':
+if selected_region != "All":
+    filtered_df = filtered_df[filtered_df['region_name'] == selected_region]
+
+if selected_category != "All":
     filtered_df = filtered_df[filtered_df['category'] == selected_category]
 
-statuses = ['All'] + sorted(list(filtered_df['order_status'].dropna().unique()))
-selected_status = st.sidebar.selectbox("Order Status", statuses)
-if selected_status != 'All':
-    filtered_df = filtered_df[filtered_df['order_status'] == selected_status]
+if filtered_df.empty:
+    st.warning("No data available for the selected filters.")
+else:
+    # KPI Calculations
+    total_revenue = filtered_df['total_revenue'].sum()
+    total_orders = filtered_df['order_id'].nunique()
+    aov = total_revenue / total_orders if total_orders > 0 else 0
+    total_customers = filtered_df['customer_id'].nunique()
 
-# Header
-st.title("🇵🇭 Fact Sales Executive Dashboard")
-st.caption("Native Streamlit Implementation | All values in Philippine Peso (₱)")
-st.divider()
+    # Repeat vs New Customer calculation based on customer order frequency in filtered or overall dataset
+    cust_order_counts = filtered_df.groupby('customer_id')['order_id'].nunique()
+    repeat_customers = (cust_order_counts > 1).sum()
+    new_customers = (cust_order_counts == 1).sum()
 
-# Core KPI Computations
-total_revenue = filtered_df['revenue'].sum()
-total_orders = filtered_df['order_id'].nunique()
-aov = total_revenue / total_orders if total_orders > 0 else 0.0
+    # Top KPIs Row
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Total Revenue", f"₱{total_revenue:,.2f}")
+    col2.metric("Total Orders", f"{total_orders:,}")
+    col3.metric("Avg Order Value (AOV)", f"₱{aov:,.2f}")
+    col4.metric("Active Customers", f"{total_customers:,}")
+    col5.metric("Repeat / New Cust", f"{repeat_customers:,} / {new_customers:,}")
 
-# Customer Repeat Analysis
-customer_order_counts = filtered_df.groupby('customer_id')['order_id'].nunique()
-repeat_customers = (customer_order_counts > 1).sum()
-new_customers = (customer_order_counts == 1).sum()
-total_customers = customer_order_counts.nunique()
-repeat_rate = (repeat_customers / total_customers * 100) if total_customers > 0 else 0.0
+    st.markdown("---")
 
-customer_revenue = filtered_df.groupby('customer_id').agg(
-    total_spend=('revenue', 'sum'),
-    order_count=('order_id', 'nunique')
-).reset_index()
-customer_revenue['customer_type'] = customer_revenue['order_count'].apply(lambda x: 'Repeat' if x > 1 else 'New')
+    # Row 1: Monthly Revenue Trend & Revenue by Category
+    row1_col1, row1_col2 = st.columns(2)
 
-repeat_rev = customer_revenue[customer_revenue['customer_type'] == 'Repeat']['total_spend'].sum()
-new_rev = customer_revenue[customer_revenue['customer_type'] == 'New']['total_spend'].sum()
+    with row1_col1:
+        st.subheader("📈 Monthly Revenue Trend")
+        monthly_rev = filtered_df.groupby('year_month')['total_revenue'].sum().reset_index()
+        fig_monthly = px.line(
+            monthly_rev, 
+            x='year_month', 
+            y='total_revenue',
+            markers=True,
+            labels={'year_month': 'Month', 'total_revenue': 'Revenue (₱)'},
+            template='plotly_white'
+        )
+        fig_monthly.update_traces(line=dict(color='#1f77b4', width=3))
+        st.plotly_chart(fig_monthly, use_container_width=True)
 
-# Top Aggregations
-top_category = filtered_df.groupby('category')['revenue'].sum().idxmax() if not filtered_df.empty else "N/A"
-top_city = filtered_df.groupby('city')['revenue'].sum().idxmax() if not filtered_df.empty else "N/A"
+    with row1_col2:
+        st.subheader("🏷️ Revenue by Category")
+        cat_rev = filtered_df.groupby('category')['total_revenue'].sum().reset_index().sort_values(by='total_revenue', ascending=True)
+        fig_cat = px.bar(
+            cat_rev,
+            x='total_revenue',
+            y='category',
+            orientation='h',
+            labels={'total_revenue': 'Revenue (₱)', 'category': 'Category'},
+            template='plotly_white',
+            color='total_revenue',
+            color_continuous_scale='Blues'
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
 
-# Row 1: Primary KPIs
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("Total Revenue", f"₱{total_revenue:,.2f}")
-kpi2.metric("Total Orders", f"{total_orders:,}")
-kpi3.metric("Average Order Value (AOV)", f"₱{aov:,.2f}")
-kpi4.metric("Top Category / City", f"{top_category}", delta=top_city, delta_color="normal")
+    # Row 2: Top 10 Products & Revenue by City
+    row2_col1, row2_col2 = st.columns(2)
 
-# Row 2: Customer Breakdown KPIs
-kpi5, kpi6, kpi7 = st.columns(3)
-kpi5.metric("Repeat vs. New Customers", f"{repeat_customers:,} / {new_customers:,}", f"{repeat_rate:.1f}% Repeat Rate")
-kpi6.metric("Repeat Customer Revenue", f"₱{repeat_rev:,.2f}", f"{(repeat_rev/total_revenue*100 if total_revenue>0 else 0):.1f}% of Total")
-kpi7.metric("New Customer Revenue", f"₱{new_rev:,.2f}", f"{(new_rev/total_revenue*100 if total_revenue>0 else 0):.1f}% of Total")
+    with row2_col1:
+        st.subheader("🏆 Top 10 Products by Revenue")
+        top_products = filtered_df.groupby(['product_id', 'product_name'])['total_revenue'].sum().reset_index()
+        top_products = top_products.sort_values(by='total_revenue', ascending=False).head(10).sort_values(by='total_revenue', ascending=True)
+        fig_prod = px.bar(
+            top_products,
+            x='total_revenue',
+            y='product_name',
+            orientation='h',
+            labels={'total_revenue': 'Revenue (₱)', 'product_name': 'Product'},
+            template='plotly_white',
+            color='total_revenue',
+            color_continuous_scale='Viridis'
+        )
+        st.plotly_chart(fig_prod, use_container_width=True)
 
-st.divider()
+    with row2_col2:
+        st.subheader("🏙️ Revenue by City (Top 15)")
+        city_rev = filtered_df.groupby('city')['total_revenue'].sum().reset_index()
+        city_rev = city_rev.sort_values(by='total_revenue', ascending=False).head(15).sort_values(by='total_revenue', ascending=True)
+        fig_city = px.bar(
+            city_rev,
+            x='total_revenue',
+            y='city',
+            orientation='h',
+            labels={'total_revenue': 'Revenue (₱)', 'city': 'City'},
+            template='plotly_white',
+            color='total_revenue',
+            color_continuous_scale='Teal'
+        )
+        st.plotly_chart(fig_city, use_container_width=True)
 
-# 1. Monthly Revenue Line Chart (Native Streamlit st.line_chart)
-st.subheader("📈 Monthly Revenue Trend")
-monthly_rev = filtered_df.groupby('year_month')['revenue'].sum().reset_index()
-monthly_chart_data = monthly_rev.set_index('year_month')['revenue']
-st.line_chart(monthly_chart_data, y_label="Revenue (₱)", x_label="Month")
+    # Row 3: Customer Spend Distribution & Repeat vs New Customer
+    row3_col1, row3_col2 = st.columns(2)
 
-# Row 3: Product and Category Charts (Native Streamlit st.bar_chart)
-col1, col2 = st.columns(2)
+    with row3_col1:
+        st.subheader("👥 Customer Spend Distribution")
+        cust_spend = filtered_df.groupby('customer_id')['total_revenue'].sum().reset_index()
+        fig_hist = px.histogram(
+            cust_spend,
+            x='total_revenue',
+            nbins=30,
+            labels={'total_revenue': 'Total Spend per Customer (₱)'},
+            template='plotly_white',
+            color_discrete_sequence=['#2ca02c']
+        )
+        st.plotly_chart(fig_hist, use_container_width=True)
 
-with col1:
-    st.subheader("🏆 Top 10 Products by Revenue")
-    top_products = filtered_df.groupby('product_name')['revenue'].sum().reset_index().sort_values(by='revenue', ascending=False).head(10)
-    top_prod_chart = top_products.set_index('product_name')['revenue']
-    st.bar_chart(top_prod_chart, x_label="Product Name", y_label="Revenue (₱)")
+    with row3_col2:
+        st.subheader("🔄 Repeat vs. New Customer Revenue Share")
+        # Classify customer order status per customer in filtered set
+        customer_orders = filtered_df.groupby('customer_id').agg(
+            first_order_date=('order_datetime', 'min'),
+            total_orders=('order_id', 'nunique'),
+            customer_revenue=('total_revenue', 'sum')
+        ).reset_index()
+        
+        # Let's categorize based on total orders in this dataset view
+        customer_orders['customer_type'] = customer_orders['total_orders'].apply(lambda x: 'Repeat Customer' if x > 1 else 'New Customer')
+        cust_type_rev = customer_orders.groupby('customer_type')['customer_revenue'].sum().reset_index()
 
-with col2:
-    st.subheader("📦 Revenue by Category")
-    cat_rev = filtered_df.groupby('category')['revenue'].sum().reset_index().sort_values(by='revenue', ascending=False)
-    cat_chart = cat_rev.set_index('category')['revenue']
-    st.bar_chart(cat_chart, x_label="Category", y_label="Revenue (₱)")
-
-# Row 4: City Chart & Customer Spend Distribution
-col3, col4 = st.columns(2)
-
-with col3:
-    st.subheader("🏙️ Top 10 Revenue by Region City")
-    city_rev = filtered_df.groupby('city')['revenue'].sum().reset_index().sort_values(by='revenue', ascending=False).head(10)
-    city_chart = city_rev.set_index('city')['revenue']
-    st.bar_chart(city_chart, x_label="City", y_label="Revenue (₱)")
-
-with col4:
-    st.subheader("👥 Customer Spend Distribution Histogram")
-    # Native Streamlit histogram representation using pd.cut binning displayed via st.bar_chart
-    spend_bins = pd.cut(customer_revenue['total_spend'], bins=15)
-    spend_dist = spend_bins.value_counts().sort_index().reset_index()
-    spend_dist.columns = ['Spend Range (₱)', 'Customer Count']
-    spend_dist['Spend Range (₱)'] = spend_dist['Spend Range (₱)'].astype(str)
-    hist_chart = spend_dist.set_index('Spend Range (₱)')['Customer Count']
-    st.bar_chart(hist_chart, x_label="Spend Range (₱)", y_label="Customer Count")
+        fig_pie = px.pie(
+            cust_type_rev,
+            names='customer_type',
+            values='customer_revenue',
+            hole=0.4,
+            template='plotly_white',
+            color_discrete_sequence=['#ff7f0e', '#1f77b4']
+        )
+        st.plotly_chart(fig_pie, use_container_width=True)
